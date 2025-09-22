@@ -7,50 +7,67 @@ fn main() {
 #[derive(Store)]
 struct State {
     strs: Vec<String>,
-    selected: Option<usize>, // or better: selected_sche: Option<Store<String>>,
+    selected: Option<u16>, // or better: selected_sche: Option<Store<String>>,
 }
 
 #[store]
-impl<Lens: Writable + Readable> Store<State, Lens> {
+impl<Lens> Store<State, Lens> {
     /// Safely selects a str by index with bounds checking
-    fn select(&mut self, index: usize) -> Result<(), String> {
-        if index >= self.strs().len() {
-            Err(format!(
+    fn select(&mut self, index: u16) -> Result<(), String> {
+        if self.strs().len() < index as usize {
+            return Err(format!(
                 "String index {} out of bounds (max: {})",
                 index,
                 self.strs().len() - 1
-            ))
-        } else {
-            self.selected().set(Some(index));
-            Ok(())
+            ));
         }
+        self.selected().set(Some(index));
+        Ok(())
     }
 
-    fn is_selected(&self, index: usize) -> bool {
+    fn is_selected(&self, index: u16) -> bool {
         *self.selected().read() == Some(index)
     }
 
     /// Returns a store for the selected string that can be edited
     fn get_selected_str(
         &self,
-    ) -> Option<Store<String, impl Writable<Target = String> + Readable<Target = String> + Clone>>
-    {
+    ) -> Option<
+        Store<
+            String,
+            MappedMutSignal<
+                String,
+                MappedMutSignal<Vec<String>, Lens>,
+                impl Fn(&Vec<String>) -> &String + Copy + 'static,
+                impl Fn(&mut Vec<String>) -> &mut String + Copy + 'static,
+            >,
+        >,
+    > {
         let index = self.selected()()?;
-        if index >= self.strs().len() {
+        if self.strs().len() < index as usize {
             return None;
         }
-        Some(self.strs().index(index))
+        Some(
+            self.strs()
+                .into_selector()
+                .child(
+                    index,
+                    move |w: &Vec<String>| &w[index as usize],
+                    move |w: &mut Vec<String>| &mut w[index as usize],
+                )
+                .into(),
+        )
     }
 
     // goal is to remove this function and use get_selected_str instead
-    fn get_selected_index(&self) -> Option<usize> {
+    fn get_selected_index(&self) -> Option<u16> {
         self.selected().read().clone()
     }
 }
 
 #[component]
 fn App() -> Element {
-    let mut state = use_store(|| State {
+    let state = use_store(|| State {
         strs: vec![
             "Hello, world!".to_string(),
             "This is a test string.".to_string(),
@@ -59,19 +76,21 @@ fn App() -> Element {
         selected: None,
     });
 
-    // let s: Store<String> = state.get_selected_str().unwrap();
-
     rsx! {
         Selector { state }
 
-        // does not work
-        // if let Some(s) = state.get_selected_str() {
-        //     StringEditor { s, key: "selected-str-{s}" }
-        // }
+        // updating this does not update the Selector value (L118)
+        // ... but it does update L88 text area
+        if let Some(s) = state.get_selected_str() {
+            StringEditor { s, key: "selected-str1-{s}" }
+        }
 
-        // works, type coercion from Index -> Store<Schema>
+        // updating this does not update the Selector value
         if let Some(index) = state.get_selected_index() {
-            StringEditor { s: state.strs().index(index), key: "selected-str-{index}" }
+            StringEditor {
+                s: state.strs().index(index as usize),
+                key: "selected-str-{index}",
+            }
         }
     }
 }
@@ -83,7 +102,9 @@ fn Selector(state: Store<State>) -> Element {
         select {
             value: state.get_selected_index().map(|i| i.to_string()).unwrap_or_default(),
             onchange: move |evt| {
-                if let Ok(index) = evt.value().parse::<usize>() && index < state.strs().len() {
+                if let Ok(index) = evt.value().parse::<u16>()
+                    && state.strs().len() >= index as usize
+                {
                     state.write().selected = Some(index);
                 }
             },
@@ -93,7 +114,8 @@ fn Selector(state: Store<State>) -> Element {
                 option {
                     key: "{str()}",
                     value: "{index}",
-                    selected: state.is_selected(index),
+                    selected: state.is_selected(index as u16),
+                    // we subscribe to str changes here
                     "{str()}"
                 }
             }
