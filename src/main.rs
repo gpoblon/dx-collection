@@ -56,9 +56,9 @@ where
 
     /// Get an iterator over the items (read-only)
     pub fn iter(&self) -> impl Iterator<Item = ReadOnlyItem<T>> {
-        (0..self.len()).map(move |index| ReadOnlyItem {
+        (0..self.len()).map(move |key| ReadOnlyItem {
             collection: self.inner,
-            index,
+            key,
         })
     }
 
@@ -67,34 +67,12 @@ where
         self.inner.items().write().push(item);
     }
 
-    /// Remove an item by index (internal use)
-    fn remove_at_index(&self, index: usize) -> Option<T> {
-        if index < self.len() {
-            Some(self.inner.items().write().remove(index))
-        } else {
-            None
-        }
-    }
-
     /// Get the currently selected item as an editable store
     pub fn get_selected_item(&self) -> Option<Store<T>>
     where
         T: Clone,
     {
         self.inner.get_selected_item().map(|item| item.into())
-    }
-
-    /// Safely select an item by index (internal use)
-    fn select_index(&self, index: usize) -> Result<(), String> {
-        if self.len() <= index {
-            return Err(format!(
-                "Item index {} out of bounds (max: {})",
-                index,
-                if self.is_empty() { 0 } else { self.len() - 1 }
-            ));
-        }
-        self.inner.selected().set(Some(index));
-        Ok(())
     }
 
     /// Select an item by its value
@@ -134,10 +112,10 @@ where
     }
 }
 
-/// A read-only reference to an item in the collection with its index
+/// A read-only reference to an item in the collection with its key
 pub struct ReadOnlyItem<T> {
     collection: Store<Collection<T>>,
-    index: usize,
+    key: usize,
 }
 
 impl<T> ReadOnlyItem<T>
@@ -146,12 +124,12 @@ where
 {
     /// Get the value of this item
     pub fn value(&self) -> T {
-        self.collection.items().read()[self.index].clone()
+        self.collection.items().read()[self.key].clone()
     }
 
     /// Check if this item is selected
     pub fn is_selected(&self) -> bool {
-        *self.collection.selected().read() == Some(self.index)
+        *self.collection.selected().read() == Some(self.key)
     }
 
     /// Select this item
@@ -159,7 +137,16 @@ where
         let store = CollectionStore {
             inner: self.collection,
         };
-        store.select_index(self.index)
+        // Inline the select logic
+        if store.len() <= self.key {
+            return Err(format!(
+                "Item key {} out of bounds (max: {})",
+                self.key,
+                if store.is_empty() { 0 } else { store.len() - 1 }
+            ));
+        }
+        store.inner.selected().set(Some(self.key));
+        Ok(())
     }
 
     /// Remove this item from the collection
@@ -167,7 +154,12 @@ where
         let store = CollectionStore {
             inner: self.collection,
         };
-        store.remove_at_index(self.index)
+        // Inline the remove logic
+        if self.key < store.len() {
+            Some(store.inner.items().write().remove(self.key))
+        } else {
+            None
+        }
     }
 }
 
