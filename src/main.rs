@@ -5,70 +5,69 @@ fn main() {
 }
 
 #[derive(Store)]
-struct State {
-    strs: Vec<String>,
-    selected: Option<u16>, // or better: selected_sche: Option<Store<String>>,
+struct Collection<T> {
+    items: Vec<T>,
+    selected: Option<usize>,
 }
 
 #[store]
-impl<Lens> Store<State, Lens> {
-    /// Safely selects a str by index with bounds checking
-    fn select(&mut self, index: u16) -> Result<(), String> {
-        if self.strs().len() < index as usize {
+impl<T: 'static, Lens> Store<Collection<T>, Lens> {
+    /// Safely selects an item by index with bounds checking
+    fn select(&mut self, index: usize) -> Result<(), String> {
+        if self.items().len() <= index {
             return Err(format!(
-                "String index {} out of bounds (max: {})",
+                "Item index {} out of bounds (max: {})",
                 index,
-                self.strs().len() - 1
+                self.items().len() - 1
             ));
         }
         self.selected().set(Some(index));
         Ok(())
     }
 
-    fn is_selected(&self, index: u16) -> bool {
+    fn is_selected(&self, index: usize) -> bool {
         *self.selected().read() == Some(index)
     }
 
-    /// Returns a store for the selected string that can be edited
-    fn get_selected_str(
+    /// Returns a store for the selected item that can be edited
+    /// Reimplements the logic of .index() method to avoid using unexposed IndexWrite type
+    fn get_selected_item(
         &self,
     ) -> Option<
         Store<
-            String,
+            T,
             MappedMutSignal<
-                String,
-                MappedMutSignal<Vec<String>, Lens>,
-                impl Fn(&Vec<String>) -> &String + Copy + 'static,
-                impl Fn(&mut Vec<String>) -> &mut String + Copy + 'static,
+                T,
+                MappedMutSignal<Vec<T>, Lens>,
+                impl Fn(&Vec<T>) -> &T + Copy + 'static,
+                impl Fn(&mut Vec<T>) -> &mut T + Copy + 'static,
             >,
         >,
     > {
         let index = self.selected()()?;
-        if self.strs().len() < index as usize {
+        if self.items().len() <= index {
             return None;
         }
+
+        // Use hash_child to create the same subscription behavior as .index()
+        // This creates a scoped store that only updates when the specific index changes
         Some(
-            self.strs()
-                .into_selector()
-                .child(
-                    index,
-                    move |w: &Vec<String>| &w[index as usize],
-                    move |w: &mut Vec<String>| &mut w[index as usize],
+            self.items()
+                .selector()
+                .hash_child(
+                    &index,
+                    move |vec: &Vec<T>| &vec[index],
+                    move |vec: &mut Vec<T>| &mut vec[index],
                 )
                 .into(),
         )
-    }
-
-    // goal is to remove this function and use get_selected_str instead
-    fn get_selected_index(&self) -> Option<u16> {
-        self.selected().read().clone()
     }
 }
 
 #[component]
 fn App() -> Element {
-    let state = use_store(|| State {
-        strs: vec![
+    let string_state = use_store(|| Collection {
+        items: vec![
             "Hello, world!".to_string(),
             "This is a test string.".to_string(),
             "Dioxus is awesome!".to_string(),
@@ -76,47 +75,54 @@ fn App() -> Element {
         selected: None,
     });
 
-    rsx! {
-        Selector { state }
+    let number_state = use_store(|| Collection {
+        items: vec![42, 100, 256, 512],
+        selected: None,
+    });
 
-        // updating this does not update the Selector value (L118)
-        // ... but it does update L88 text area
-        if let Some(s) = state.get_selected_str() {
-            StringEditor { s, key: "selected-str1-{s}" }
+    rsx! {
+        div {
+            h2 { "String Collection" }
+            Selector { state: string_state }
+
+            if let Some(s) = string_state.get_selected_item() {
+                ItemEditor { item: s, key: "selected-str-{s}" }
+            }
         }
 
-        // updating this does not update the Selector value
-        if let Some(index) = state.get_selected_index() {
-            StringEditor {
-                s: state.strs().index(index as usize),
-                key: "selected-str-{index}",
+        div {
+            h2 { "Number Collection" }
+            Selector { state: number_state }
+
+            if let Some(num) = number_state.get_selected_item() {
+                ItemEditor { item: num, key: "selected-num-{num}" }
             }
         }
     }
 }
 
 #[component]
-fn Selector(state: Store<State>) -> Element {
+fn Selector<T>(state: Store<Collection<T>>) -> Element
+where
+    T: std::fmt::Display + Clone + 'static,
+{
     rsx! {
-        h3 { "Strings" }
+        h3 { "Items" }
         select {
-            value: state.get_selected_index().map(|i| i.to_string()).unwrap_or_default(),
+            value: state.get_selected_item().map(|item| item.to_string()).unwrap_or_default(),
             onchange: move |evt| {
-                if let Ok(index) = evt.value().parse::<u16>()
-                    && state.strs().len() >= index as usize
-                {
+                if let Ok(index) = evt.value().parse::<usize>() && state.items().len() > index {
                     state.write().selected = Some(index);
                 }
             },
-            // Options populated from strs
-            option { value: "", "Choose a str" }
-            for (index , str) in state.strs().iter().enumerate() {
+            // Options populated from items
+            option { value: "", "Choose an item" }
+            for (index , item) in state.items().iter().enumerate() {
                 option {
-                    key: "{str()}",
+                    key: "{item()}",
                     value: "{index}",
-                    selected: state.is_selected(index as u16),
-                    // we subscribe to str changes here
-                    "{str()}"
+                    selected: state.is_selected(index),
+                    "{item()}"
                 }
             }
         }
@@ -124,12 +130,18 @@ fn Selector(state: Store<State>) -> Element {
 }
 
 #[component]
-pub fn StringEditor(s: Store<String>) -> Element {
+pub fn ItemEditor<T>(item: Store<T>) -> Element
+where
+    T: std::fmt::Display + std::str::FromStr + Clone + 'static,
+    T::Err: std::fmt::Debug,
+{
     rsx! {
-        textarea {
-            value: s(),
+        input {
+            value: item().to_string(),
             onchange: move |e| {
-                s.set(e.value());
+                if let Ok(parsed) = e.value().parse::<T>() {
+                    item.set(parsed);
+                }
             },
         }
     }
