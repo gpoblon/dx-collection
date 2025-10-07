@@ -1,12 +1,27 @@
 [package]
-authors = ["gpoblon"]
-edition = "2024"
+name = "dioxus-collection-store"
 version = "0.1.0"
-name = "rune-examples"
+edition = "2024"
+authors = ["gpoblon <gpoblon@ryse.ovh>"]
+license = "MIT OR Apache-2.0"
+description = "Trait-based reactive collection stores for Dioxus with unified API for Vec, HashMap, and custom collections"
+repository = "https://github.com/gpoblon/dx-collection"
+documentation = "https://docs.rs/dioxus-collection-store"
+readme = "README.md"
+keywords = ["dioxus", "collection", "store"]
+categories = ["gui"]
 
 [dependencies]
-dioxus = { version = "0.7.0-rc.0", features = ["desktop"] }
-dioxus-stores = "0.7.0-rc.0"
+# Minimal reactive store primitives - no UI dependencies
+dioxus-stores = { git = "https://github.com/DioxusLabs/dioxus.git", branch = "main" }
+dioxus-signals = { git = "https://github.com/DioxusLabs/dioxus.git", branch = "main" }
+dioxus-core = { git = "https://github.com/DioxusLabs/dioxus.git", branch = "main" }
+
+[dev-dependencies]
+# Full Dioxus with desktop support for examples
+dioxus = { git = "https://github.com/DioxusLabs/dioxus.git", branch = "main", features = [
+    "desktop",
+] }
 
 [profile]
 
