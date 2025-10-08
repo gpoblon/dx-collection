@@ -1,5 +1,5 @@
-[![ci](https://github.com/gpoblon/dioxus-collection/actions/workflows/ci.yml/badge.svg)](https://github.com/gpoblon/dioxus-collection/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/gpoblon/dioxus-collection/graph/badge.svg?token=CBuDPi6XgO)](https://codecov.io/gh/gpoblon/dioxus-collection)
+Disclaimer: the current implementation is not optimal. But main dx/performance improvements require a few changes in dioxus codebase.
+Therefore, I opened an issue: https://github.com/DioxusLabs/dioxus/issues/4739.
 
 # dioxus-collection-store
 
